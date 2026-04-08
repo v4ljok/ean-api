@@ -15,7 +15,7 @@ PLUGINS = [
 
 
 def run_plugin(plugin, page, query: str):
-    if plugin.site in ("aeromotors.ee", "ladu24.ee"):
+    if plugin.site == "ladu24.ee":
         return plugin.search(query)
     return plugin.search(page, query)
 

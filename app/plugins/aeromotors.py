@@ -2,7 +2,6 @@ from typing import Optional
 import json
 import re
 
-import httpx
 from bs4 import BeautifulSoup
 
 from app.models import Offer
@@ -10,23 +9,6 @@ from app.models import Offer
 
 class AeromotorsPlugin:
     site = "aeromotors.ee"
-
-    HEADERS = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/122.0.0.0 Safari/537.36"
-        ),
-        "Accept": (
-            "text/html,application/xhtml+xml,application/xml;q=0.9,"
-            "image/avif,image/webp,image/apng,*/*;q=0.8"
-        ),
-        "Accept-Language": "et-EE,et;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Referer": "https://aeromotors.ee/",
-        "Cache-Control": "no-cache",
-        "Pragma": "no-cache",
-        "Upgrade-Insecure-Requests": "1",
-    }
 
     def _clean_price(self, text: str) -> str:
         cleaned = text.replace("\xa0", " ").strip()
@@ -39,19 +21,11 @@ class AeromotorsPlugin:
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
-    def _get_client(self) -> httpx.Client:
-        return httpx.Client(
-            headers=self.HEADERS,
-            timeout=15,
-            follow_redirects=True,
-        )
+    def _parse_product(self, page, url: str) -> dict:
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1200)
 
-    def _parse_product(self, url: str) -> dict:
-        with self._get_client() as client:
-            r = client.get(url)
-            r.raise_for_status()
-
-        soup = BeautifulSoup(r.text, "html.parser")
+        soup = BeautifulSoup(page.content(), "html.parser")
 
         name_el = soup.select_one("h1")
         name = name_el.get_text(strip=True) if name_el else None
@@ -127,14 +101,13 @@ class AeromotorsPlugin:
             "ean": eans,
         }
 
-    def search(self, ean: str) -> Optional[Offer]:
+    def search(self, page, ean: str) -> Optional[Offer]:
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
-        with self._get_client() as client:
-            r = client.get(search_url)
-            r.raise_for_status()
+        page.goto(search_url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1500)
 
-        soup = BeautifulSoup(r.text, "html.parser")
+        soup = BeautifulSoup(page.content(), "html.parser")
 
         not_found_el = soup.select_one(".am-products-header span")
         if not_found_el and "Tooteid ei leitud" in not_found_el.get_text(" ", strip=True):
@@ -206,7 +179,7 @@ class AeromotorsPlugin:
         elif not link.startswith("http"):
             link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
-        product_data = self._parse_product(link)
+        product_data = self._parse_product(page, link)
 
         return Offer(
             site=self.site,
