@@ -2,7 +2,6 @@ from typing import Optional
 import json
 import re
 import time
-import random
 
 from bs4 import BeautifulSoup
 
@@ -11,11 +10,6 @@ from app.models import Offer
 
 class AeromotorsPlugin:
     site = "aeromotors.ee"
-    base_url = "https://aeromotors.ee"
-
-    # ------------------------------------------------------------------ #
-    #  Утилиты                                                             #
-    # ------------------------------------------------------------------ #
 
     def _clean_price(self, text: str) -> str:
         cleaned = text.replace("\xa0", " ").strip()
@@ -26,11 +20,6 @@ class AeromotorsPlugin:
 
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
-
-    def _abs_url(self, link: str) -> str:
-        if link.startswith("http"):
-            return link
-        return f"{self.base_url}/{link.lstrip('/')}"
 
     def _make_not_found(self, search_url: str) -> Offer:
         return Offer(
@@ -46,70 +35,96 @@ class AeromotorsPlugin:
             status="Puudub",
         )
 
+    def _abs_url(self, link: str) -> str:
+        if link.startswith("http"):
+            return link
+        return f"https://aeromotors.ee/{link.lstrip('/')}"
+
     # ------------------------------------------------------------------ #
-    #  Cloudflare                                                          #
+    #  Cloudflare — оригинальный рабочий клик                             #
     # ------------------------------------------------------------------ #
 
+    def _handle_cloudflare_challenge(self, page) -> bool:
+        """
+        Ищет CF iframe, кликает по чекбоксу (оригинальная формула координат),
+        ждёт исчезновения фрейма.
+        Возвращает True если фрейм исчез (челлендж пройден).
+        """
+        cf_frame = None
+        for _ in range(30):
+            for frame in page.frames:
+                if frame.url.startswith("https://challenges.cloudflare.com"):
+                    cf_frame = frame
+                    break
+            if cf_frame:
+                break
+            page.wait_for_timeout(500)
+
+        if not cf_frame:
+            # Фрейма нет — либо CF нет, либо inline-вариант. Считаем что ок.
+            return True
+
+        frame_element = cf_frame.frame_element()
+        if frame_element:
+            bbox = frame_element.bounding_box()
+            if bbox:
+                # Оригинальные координаты — не трогаем
+                click_x = bbox["x"] + bbox["width"] / 9
+                click_y = bbox["y"] + bbox["height"] / 2
+                page.mouse.click(click_x, click_y)
+
+        for _ in range(60):
+            still_exists = any(
+                f.url.startswith("https://challenges.cloudflare.com")
+                for f in page.frames
+            )
+            if not still_exists:
+                break
+            page.wait_for_timeout(1000)
+
+        page.wait_for_timeout(3000)
+
+        # Проверяем что CF действительно ушёл
+        return not any(
+            f.url.startswith("https://challenges.cloudflare.com")
+            for f in page.frames
+        )
+
     def _is_cf_page(self, page) -> bool:
-        """Проверяет, показывает ли страница CF-челлендж."""
         title = page.title().lower()
         if "just a moment" in title or "checking your browser" in title:
             return True
         if any("challenges.cloudflare.com" in f.url for f in page.frames):
             return True
-        # inline-форма без отдельного фрейма
-        try:
-            if page.locator("#challenge-form").count() > 0:
-                return True
-        except Exception:
-            pass
-        return False
-
-    def _wait_for_cf(self, page, timeout_s: int = 40) -> bool:
-        """
-        Ждёт пока CF-челлендж пройдёт сам (Camoufox с humanize=True
-        обычно решает его автоматически).
-        Возвращает True если страница очистилась.
-        """
-        deadline = time.time() + timeout_s
-        while time.time() < deadline:
-            if not self._is_cf_page(page):
-                return True
-            page.wait_for_timeout(1000)
         return False
 
     # ------------------------------------------------------------------ #
-    #  Навигация                                                           #
+    #  Навигация с одним ретраем если CF не прошёл                        #
     # ------------------------------------------------------------------ #
 
-    def _goto(self, page, url: str, retries: int = 3) -> bool:
-        """
-        Открывает страницу, ждёт окончания CF если нужно.
-        Возвращает True при успехе.
-        """
+    def _goto(self, page, url: str, retries: int = 2) -> bool:
         for attempt in range(1, retries + 1):
             try:
-                # domcontentloaded — не зависает на CF в отличие от networkidle
+                # domcontentloaded не зависает на CF в отличие от networkidle
                 page.goto(url, wait_until="domcontentloaded", timeout=30_000)
             except Exception as e:
                 print(f"[aeromotors] goto error (attempt {attempt}): {e}")
                 if attempt == retries:
                     return False
-                page.wait_for_timeout(random.randint(2000, 4000))
+                page.wait_for_timeout(3000)
                 continue
 
-            # короткая пауза чтобы CF успел инициализироваться
-            page.wait_for_timeout(random.randint(1500, 2500))
+            page.wait_for_timeout(2500)
 
-            if self._is_cf_page(page):
-                print(f"[aeromotors] CF challenge (attempt {attempt}), ждём...")
-                resolved = self._wait_for_cf(page, timeout_s=45)
-                if not resolved:
-                    print("[aeromotors] CF не прошёл, ретрай")
-                    page.wait_for_timeout(random.randint(3000, 6000))
-                    continue
+            if not self._is_cf_page(page):
+                return True
 
-            return True
+            print(f"[aeromotors] CF detected (attempt {attempt}), обрабатываем...")
+            resolved = self._handle_cloudflare_challenge(page)
+            if resolved:
+                return True
+
+            print(f"[aeromotors] CF не прошёл, ретрай {attempt}")
 
         return False
 
@@ -118,11 +133,7 @@ class AeromotorsPlugin:
     # ------------------------------------------------------------------ #
 
     def _parse_product(self, page, url: str) -> dict:
-        ok = self._goto(page, url)
-        if not ok:
-            return {"name": None, "brand": None,
-                    "product_category": None, "part_number": None, "ean": []}
-
+        self._goto(page, url)
         soup = BeautifulSoup(page.content(), "html.parser")
 
         name_el = soup.select_one("h1")
@@ -185,23 +196,21 @@ class AeromotorsPlugin:
     # ------------------------------------------------------------------ #
 
     def search(self, page, ean: str) -> Optional[Offer]:
-        search_url = f"{self.base_url}/otsi?s={ean}"
+        search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
-        ok = self._goto(page, search_url, retries=3)
+        ok = self._goto(page, search_url)
         if not ok:
-            print(f"[aeromotors] не удалось загрузить {search_url}")
+            print(f"[aeromotors] не удалось загрузить страницу, title={page.title()!r}")
             return self._make_not_found(search_url)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
-        # "Товаров не найдено"
         not_found_el = soup.select_one(".am-products-header span")
         if not_found_el and "Tooteid ei leitud" in not_found_el.get_text(" ", strip=True):
             return self._make_not_found(search_url)
 
         product = soup.select_one(".uk-product-card-horizontal")
         if not product:
-            # Возможно CF всё же не прошёл — логируем
             print(f"[aeromotors] карточка не найдена, title={page.title()!r}")
             return self._make_not_found(search_url)
 
