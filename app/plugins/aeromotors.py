@@ -1,6 +1,7 @@
 from typing import Optional
 import json
 import re
+import time
 
 from bs4 import BeautifulSoup
 
