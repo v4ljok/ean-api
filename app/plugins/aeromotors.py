@@ -1,7 +1,7 @@
 from typing import Optional
 import json
 import re
-import time
+import base64
 
 from bs4 import BeautifulSoup
 
@@ -15,16 +15,51 @@ class AeromotorsPlugin:
         cleaned = text.replace("\xa0", " ").strip()
         cleaned = cleaned.replace("€", "").replace("EUR", "").strip()
         cleaned = cleaned.replace(",", ".")
-
         match = re.search(r"\d+(?:\.\d+)?", cleaned)
         return match.group(0) if match else ""
 
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
+    def _handle_cloudflare_challenge(self, page):
+        cf_frame = None
+        for _ in range(30):
+            for frame in page.frames:
+                if frame.url.startswith('https://challenges.cloudflare.com'):
+                    cf_frame = frame
+                    break
+            if cf_frame:
+                break
+            page.wait_for_timeout(500)
+
+        if not cf_frame:
+            return
+
+        frame_element = cf_frame.frame_element()
+        if frame_element:
+            bbox = frame_element.bounding_box()
+            if bbox:
+                click_x = bbox['x'] + bbox['width'] / 9
+                click_y = bbox['y'] + bbox['height'] / 2
+                page.mouse.click(click_x, click_y)
+
+        for _ in range(60):
+            still_exists = any(
+                f.url.startswith('https://challenges.cloudflare.com')
+                for f in page.frames
+            )
+            if not still_exists:
+                break
+            page.wait_for_timeout(1000)
+
+        page.wait_for_timeout(3000)
+
     def _parse_product(self, page, url: str) -> dict:
-        page.goto(url, wait_until="networkidle")
+        # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2000)
+        self._handle_cloudflare_challenge(page)
+
         soup = BeautifulSoup(page.content(), "html.parser")
 
         name_el = soup.select_one("h1")
@@ -92,72 +127,16 @@ class AeromotorsPlugin:
             "part_number": part_number,
             "ean": eans,
         }
-    
-    def _handle_cloudflare_challenge(self, page):
-        cf_frame = None
-        for _ in range(30):
-            for frame in page.frames:
-                if frame.url.startswith('https://challenges.cloudflare.com'):
-                    cf_frame = frame
-                    break
-            if cf_frame:
-                break
-            page.wait_for_timeout(500)
-
-        if not cf_frame:
-            return
-
-        frame_element = cf_frame.frame_element()
-        if frame_element:
-            bbox = frame_element.bounding_box()
-            if bbox:
-                click_x = bbox['x'] + bbox['width'] / 9
-                click_y = bbox['y'] + bbox['height'] / 2
-                page.mouse.click(click_x, click_y)
-
-        for _ in range(60):
-            still_exists = any(
-                f.url.startswith('https://challenges.cloudflare.com')
-                for f in page.frames
-            )
-            if not still_exists:
-                break
-            page.wait_for_timeout(1000)
-
-        page.wait_for_timeout(3000)
 
     def search(self, page, ean: str) -> Optional[Offer]:
-        import base64
-
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
-        page.goto(search_url, wait_until="networkidle")
+        page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2500)
 
         self._handle_cloudflare_challenge(page)
 
-
-        # СКРИН
-        screenshot_bytes = page.screenshot(full_page=True)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-
-        print("=== DEBUG AEROMOTORS ===")
-        print("url:", page.url)
-        print("title:", page.title())
-        print("cards:", page.locator(".uk-product-card-horizontal").count())
-        print("titles:", page.locator(".product__title").count())
-        print("prices:", page.locator("p.uk-h4.uk-margin-remove").count())
-        print("all links:", page.locator("a").count())
-        print("all h1:", page.locator("h1").count())
-        print("body text:", page.locator("body").first.inner_text()[:2000])
-        print("html:", page.content()[:3000])
-
-        print("=== SCREENSHOT BASE64 START ===")
-        print(screenshot_b64)
-        print("=== SCREENSHOT BASE64 END ===") 
-
         soup = BeautifulSoup(page.content(), "html.parser")
-        
 
         not_found_el = soup.select_one(".am-products-header span")
         if not_found_el and "Tooteid ei leitud" in not_found_el.get_text(" ", strip=True):
