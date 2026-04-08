@@ -93,15 +93,34 @@ class AeromotorsPlugin:
         }
 
     def search(self, page, ean: str) -> Optional[Offer]:
+        import base64
+
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
         page.goto(search_url, wait_until="networkidle")
         page.wait_for_timeout(2500)
+
+        # 📸 СКРИН
+        screenshot_bytes = page.screenshot(full_page=True)
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+
+        print("=== DEBUG AEROMOTORS ===")
+        print("url:", page.url)
         print("title:", page.title())
         print("cards:", page.locator(".uk-product-card-horizontal").count())
         print("titles:", page.locator(".product__title").count())
         print("prices:", page.locator("p.uk-h4.uk-margin-remove").count())
+        print("all links:", page.locator("a").count())
+        print("all h1:", page.locator("h1").count())
+        print("body text:", page.locator("body").inner_text()[:2000])
+        print("html:", page.content()[:3000])
+
+        print("=== SCREENSHOT BASE64 START ===")
+        print(screenshot_b64)
+        print("=== SCREENSHOT BASE64 END ===")
+
         soup = BeautifulSoup(page.content(), "html.parser")
+        
 
         not_found_el = soup.select_one(".am-products-header span")
         if not_found_el and "Tooteid ei leitud" in not_found_el.get_text(" ", strip=True):
