@@ -232,6 +232,13 @@ class Intercars24Plugin:
         accept_osano(page)
         page.wait_for_timeout(1200)
 
+        screenshot_bytes = page.screenshot(full_page=True)
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+
+        print("=== SCREENSHOT BASE64 START ===")
+        print(screenshot_b64)
+        print("=== SCREENSHOT BASE64 END ===") 
+
         card = find_best_card(page, ean)
         if not card:
             return Offer(
