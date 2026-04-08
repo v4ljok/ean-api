@@ -22,8 +22,8 @@ class AeromotorsPlugin:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
     def _parse_product(self, page, url: str) -> dict:
-        page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_timeout(1200)
+        page.goto(url, wait_until="networkidle")
+        page.wait_for_timeout(2000)
         soup = BeautifulSoup(page.content(), "html.parser")
 
         name_el = soup.select_one("h1")
@@ -95,8 +95,8 @@ class AeromotorsPlugin:
     def search(self, page, ean: str) -> Optional[Offer]:
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
-        page.goto(search_url, wait_until="domcontentloaded")
-        page.wait_for_timeout(1500)
+        page.goto(search_url, wait_until="networkidle")
+        page.wait_for_timeout(2500)
         soup = BeautifulSoup(page.content(), "html.parser")
 
         not_found_el = soup.select_one(".am-products-header span")
@@ -163,6 +163,11 @@ class AeromotorsPlugin:
                 price="",
                 status="Puudub",
             )
+
+        if link.startswith("/"):
+            link = f"https://aeromotors.ee{link}"
+        elif not link.startswith("http"):
+            link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
         product_data = self._parse_product(page, link)
 
