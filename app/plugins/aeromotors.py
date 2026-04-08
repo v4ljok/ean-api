@@ -11,6 +11,23 @@ from app.models import Offer
 class AeromotorsPlugin:
     site = "aeromotors.ee"
 
+    HEADERS = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,application/xml;q=0.9,"
+            "image/avif,image/webp,image/apng,*/*;q=0.8"
+        ),
+        "Accept-Language": "et-EE,et;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Referer": "https://aeromotors.ee/",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+    }
+
     def _clean_price(self, text: str) -> str:
         cleaned = text.replace("\xa0", " ").strip()
         cleaned = cleaned.replace("€", "").replace("EUR", "").strip()
@@ -22,9 +39,18 @@ class AeromotorsPlugin:
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
+    def _get_client(self) -> httpx.Client:
+        return httpx.Client(
+            headers=self.HEADERS,
+            timeout=15,
+            follow_redirects=True,
+        )
+
     def _parse_product(self, url: str) -> dict:
-        r = httpx.get(url, timeout=15, follow_redirects=True)
-        r.raise_for_status()
+        with self._get_client() as client:
+            r = client.get(url)
+            r.raise_for_status()
+
         soup = BeautifulSoup(r.text, "html.parser")
 
         name_el = soup.select_one("h1")
@@ -46,11 +72,19 @@ class AeromotorsPlugin:
 
             if key == "Kaubamärk":
                 strong = value_cell.select_one("strong")
-                brand = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
+                brand = (
+                    strong.get_text(strip=True)
+                    if strong
+                    else value_cell.get_text(" ", strip=True)
+                )
 
             elif key == "Tootegrupp":
                 strong = value_cell.select_one("strong")
-                product_category = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
+                product_category = (
+                    strong.get_text(strip=True)
+                    if strong
+                    else value_cell.get_text(" ", strip=True)
+                )
 
             elif key == "EAN":
                 eans = self._extract_eans(value_cell)
@@ -79,7 +113,7 @@ class AeromotorsPlugin:
                     if not eans:
                         gtin13 = item.get("gtin13")
                         if gtin13:
-                            eans = [gtin13]
+                            eans = [str(gtin13).strip()]
                     break
 
             if part_number:
@@ -96,8 +130,10 @@ class AeromotorsPlugin:
     def search(self, ean: str) -> Optional[Offer]:
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
-        r = httpx.get(search_url, timeout=15, follow_redirects=True)
-        r.raise_for_status()
+        with self._get_client() as client:
+            r = client.get(search_url)
+            r.raise_for_status()
+
         soup = BeautifulSoup(r.text, "html.parser")
 
         not_found_el = soup.select_one(".am-products-header span")
@@ -164,6 +200,11 @@ class AeromotorsPlugin:
                 price="",
                 status="Puudub",
             )
+
+        if link.startswith("/"):
+            link = f"https://aeromotors.ee{link}"
+        elif not link.startswith("http"):
+            link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
         product_data = self._parse_product(link)
 
