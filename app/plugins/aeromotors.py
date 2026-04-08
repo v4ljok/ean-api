@@ -107,7 +107,7 @@ class AeromotorsPlugin:
                         click_y = bbox['y'] + bbox['height'] / 2
                         page.mouse.click(click_x, click_y)
                         # Небольшая пауза после клика
-                        page.wait_for_timeout(2000)
+                        page.wait_for_timeout(4000)
                         break
 
     def search(self, page, ean: str) -> Optional[Offer]:
