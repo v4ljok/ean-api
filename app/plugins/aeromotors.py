@@ -1,245 +1,320 @@
-from typing import Optional
+from typing import Optional, List
+import base64
 import json
 import re
-import time
-
-from bs4 import BeautifulSoup
 
 from app.models import Offer
 
 
-class AeromotorsPlugin:
-    site = "aeromotors.ee"
+def accept_osano(page) -> bool:
+    btn = page.locator("button[datatest-id='tap-osano-accept']")
+    try:
+        btn.wait_for(state="visible", timeout=4000)
+        btn.click()
+        return True
+    except Exception:
+        if btn.count():
+            try:
+                btn.first.click(force=True)
+                return True
+            except Exception:
+                try:
+                    page.evaluate("""
+                    () => {
+                      const b = document.querySelector("button[datatest-id='tap-osano-accept']");
+                      if (b) b.click();
+                    }
+                    """)
+                    return True
+                except Exception:
+                    pass
+        return False
 
-    def _clean_price(self, text: str) -> str:
-        cleaned = text.replace("\xa0", " ").strip()
-        cleaned = cleaned.replace("€", "").replace("EUR", "").strip()
-        cleaned = cleaned.replace(",", ".")
 
-        match = re.search(r"\d+(?:\.\d+)?", cleaned)
-        return match.group(0) if match else ""
+def parse_status(page) -> str:
+    try:
+        el = page.locator("[data-availability]").first
+        if el.count():
+            value = el.get_attribute("data-availability")
+            if value and value.strip().isdigit():
+                qty = int(value.strip())
+                return "Otsas" if qty == 0 else "Saadaval"
+    except Exception:
+        pass
+    return "Puudub"
 
-    def _extract_eans(self, value_cell) -> list[str]:
-        return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
-    def _parse_product(self, page, url: str) -> dict:
-        page.goto(url, wait_until="networkidle")
-        page.wait_for_timeout(2000)
-        soup = BeautifulSoup(page.content(), "html.parser")
+def safe_text(locator) -> str:
+    try:
+        if locator.count():
+            value = locator.first.text_content()
+            return value.strip() if value else ""
+    except Exception:
+        pass
+    return ""
 
-        name_el = soup.select_one("h1")
-        name = name_el.get_text(strip=True) if name_el else None
 
-        brand = None
-        product_category = None
-        eans: list[str] = []
-        part_number = None
+def safe_attr(locator, attr: str) -> str:
+    try:
+        if locator.count():
+            value = locator.first.get_attribute(attr)
+            return value.strip() if value else ""
+    except Exception:
+        pass
+    return ""
 
-        rows = soup.select("table tr")
-        for row in rows:
-            cols = row.find_all("td")
-            if len(cols) != 2:
+
+def normalize_ean(value: str) -> str:
+    return re.sub(r"\D", "", (value or "").strip())
+
+
+def normalize_price(value: str) -> str:
+    value = (value or "").strip().replace(",", ".")
+    m = re.search(r"\d+(?:\.\d+)?", value)
+    return m.group(0) if m else ""
+
+
+def split_eans(text: str) -> List[str]:
+    if not text:
+        return []
+    parts = re.split(r"[,;/\n\r\t ]+", text)
+    result = []
+    seen = set()
+    for part in parts:
+        ean = normalize_ean(part)
+        if ean and ean not in seen:
+            seen.add(ean)
+            result.append(ean)
+    return result
+
+
+def extract_price_from_jsonld(page) -> str:
+    try:
+        scripts = page.locator("script[type='application/ld+json']").all_text_contents()
+        for raw in scripts:
+            if not raw or not raw.strip():
                 continue
-
-            key = cols[0].get_text(" ", strip=True)
-            value_cell = cols[1]
-
-            if key == "Kaubamärk":
-                strong = value_cell.select_one("strong")
-                brand = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
-
-            elif key == "Tootegrupp":
-                strong = value_cell.select_one("strong")
-                product_category = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
-
-            elif key == "EAN":
-                eans = self._extract_eans(value_cell)
-
-        for script in soup.select('script[type="application/ld+json"]'):
-            raw = script.string or script.get_text()
-            if not raw.strip():
-                continue
-
             try:
                 data = json.loads(raw)
             except Exception:
                 continue
+            items = data if isinstance(data, list) else [data]
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                if item.get("@type") == "Product":
+                    offers = item.get("offers")
+                    if isinstance(offers, dict):
+                        price = offers.get("price")
+                        if price:
+                            normalized = normalize_price(str(price))
+                            if normalized:
+                                return normalized
+    except Exception:
+        pass
+    return ""
 
-            candidates = data if isinstance(data, list) else [data]
 
-            for item in candidates:
-                if isinstance(item, dict) and item.get("@type") == "Product":
-                    part_number = item.get("mpn") or item.get("sku")
+def extract_prices_from_inline_json(page, art_value: str) -> tuple[str, str]:
+    try:
+        html = page.content()
+        if not html:
+            return "", ""
+        m = re.search(
+            r"pricesFromApiStrictStr\s*=\s*JSON\.stringify\((\[.*?\])\)\s*;",
+            html,
+            flags=re.S,
+        )
+        if not m:
+            return "", ""
+        arr = json.loads(m.group(1))
+        if not isinstance(arr, list):
+            return "", ""
+        target_art = (art_value or "").strip()
+        for item in arr:
+            if not isinstance(item, dict):
+                continue
+            tow = str(item.get("Tow", "")).strip()
+            if target_art and tow and tow != target_art:
+                continue
+            gross = normalize_price(str(item.get("Cena1B", "") or item.get("PriceModal", "")))
+            net = normalize_price(str(item.get("Cena1N", "")))
+            return gross, net
+    except Exception:
+        pass
+    return "", ""
 
-                    if not brand:
-                        brand_data = item.get("brand")
-                        if isinstance(brand_data, dict):
-                            brand = brand_data.get("name")
 
-                    if not eans:
-                        gtin13 = item.get("gtin13")
-                        if gtin13:
-                            eans = [gtin13]
-                    break
+def extract_eans_from_product_page(page) -> List[str]:
+    selectors = [
+        "div.attribute:has(strong:has-text('Vöötkood')) div.js-attr-color_multiselect",
+        "div.attribute:has(strong:has-text('EAN')) div.js-attr-color_multiselect",
+        "div.attribute:has(strong:has-text('Barcode')) div.js-attr-color_multiselect",
+        "div.attribute:has(strong:has-text('Vöötkood'))",
+        "div.attribute:has(strong:has-text('EAN'))",
+        "div.attribute:has(strong:has-text('Barcode'))",
+    ]
+    for selector in selectors:
+        text = safe_text(page.locator(selector))
+        eans = split_eans(text)
+        if eans:
+            return eans
+    return []
 
-            if part_number:
-                break
 
-        return {
-            "name": name,
-            "brand": brand,
-            "product_category": product_category,
-            "part_number": part_number,
-            "ean": eans,
-        }
-    
-    def _handle_cloudflare_challenge(self, page):
-        cf_frame = None
-        for _ in range(30):
-            for frame in page.frames:
-                if frame.url.startswith('https://challenges.cloudflare.com'):
-                    cf_frame = frame
-                    break
-            if cf_frame:
-                break
-            page.wait_for_timeout(500)
+def find_best_card(page, ean: str):
+    cards = page.locator("div[id^='check_view_price_param_']")
+    try:
+        count = cards.count()
+    except Exception:
+        count = 0
 
-        if not cf_frame:
-            return
+    if count == 0:
+        return None
 
-        frame_element = cf_frame.frame_element()
-        if frame_element:
-            bbox = frame_element.bounding_box()
-            if bbox:
-                click_x = bbox['x'] + bbox['width'] / 9
-                click_y = bbox['y'] + bbox['height'] / 2
-                page.mouse.click(click_x, click_y)
+    wanted_ean = normalize_ean(ean)
 
-        for _ in range(60):
-            still_exists = any(
-                f.url.startswith('https://challenges.cloudflare.com')
-                for f in page.frames
-            )
-            if not still_exists:
-                break
-            page.wait_for_timeout(1000)
+    for i in range(count):
+        card = cards.nth(i)
+        try:
+            text = card.text_content() or ""
+        except Exception:
+            text = ""
+        if wanted_ean and wanted_ean in normalize_ean(text):
+            return card
+        try:
+            html = card.inner_html()
+        except Exception:
+            html = ""
+        if wanted_ean and wanted_ean in normalize_ean(html):
+            return card
 
-        page.wait_for_timeout(3000)
+    return cards.first
+
+
+class Intercars24Plugin:
+    site = "intercars24.ee"
+
+    def _make_not_found(self, search_url: str) -> Offer:
+        return Offer(
+            site=self.site,
+            search_url=search_url,
+            url="",
+            name="",
+            brand="",
+            product_category="",
+            part_number="",
+            ean=[],
+            price="",
+            status="Puudub",
+        )
 
     def search(self, page, ean: str) -> Optional[Offer]:
-        import base64
+        encoded = base64.b64encode(ean.encode()).decode()
+        search_url = f"https://www.intercars24.ee/autoosad/search={encoded}&advancedOptionSearch=7"
 
-        search_url = f"https://aeromotors.ee/otsi?s={ean}"
+        page.goto(search_url, wait_until="domcontentloaded")
+        accept_osano(page)
+        page.wait_for_timeout(1200)
 
-        page.goto(search_url, wait_until="networkidle")
-        page.wait_for_timeout(2500)
+        card = find_best_card(page, ean)
+        if not card:
+            return self._make_not_found(search_url)
 
-        self._handle_cloudflare_challenge(page)
+        card_link = card.locator("a#main-link-product-card, a.main-link-product-card").first
+        href = ""
+        for _ in range(10):
+            href = safe_attr(card_link, "href")
+            if href:
+                break
+            page.wait_for_timeout(300)
 
+        if not href:
+            return self._make_not_found(search_url)
 
-        # СКРИН
-        screenshot_bytes = page.screenshot(full_page=True)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+        url = href if href.startswith("http") else f"https://www.intercars24.ee{href}"
 
-        print("=== DEBUG AEROMOTORS ===")
-        print("url:", page.url)
-        print("title:", page.title())
-        print("cards:", page.locator(".uk-product-card-horizontal").count())
-        print("titles:", page.locator(".product__title").count())
-        print("prices:", page.locator("p.uk-h4.uk-margin-remove").count())
-        print("all links:", page.locator("a").count())
-        print("all h1:", page.locator("h1").count())
-        print("body text:", page.locator("body").first.inner_text()[:2000])
-        print("html:", page.content()[:3000])
+        listing_gross = normalize_price(
+            safe_text(card.locator("div.value.price_gross_2.gross, div.price_gross_2.gross"))
+        )
+        listing_net = normalize_price(
+            safe_text(card.locator("span.value.price_net_2.nett, span.price_net_2.nett"))
+        )
+        art_value = safe_attr(card.locator("input[id^='baner-item-art-']").first, "value")
 
-        print("=== SCREENSHOT BASE64 START ===")
-        print(screenshot_b64)
-        print("=== SCREENSHOT BASE64 END ===") 
+        if not listing_gross:
+            listing_gross, listing_net_from_json = extract_prices_from_inline_json(page, art_value)
+            if not listing_net:
+                listing_net = listing_net_from_json
 
-        soup = BeautifulSoup(page.content(), "html.parser")
-        
+        page.goto(url, wait_until="domcontentloaded")
+        page.wait_for_timeout(1200)
 
-        not_found_el = soup.select_one(".am-products-header span")
-        if not_found_el and "Tooteid ei leitud" in not_found_el.get_text(" ", strip=True):
-            return Offer(
-                site=self.site,
-                search_url=search_url,
-                url="",
-                name="",
-                brand="",
-                product_category="",
-                part_number="",
-                ean=[],
-                price="",
-                status="Puudub",
-            )
+        name = safe_text(page.locator("h1"))
+        brand = safe_text(page.locator("span.manufacture"))
+        product_category = safe_text(page.locator("span[data-id='crumb2']"))
 
-        product = soup.select_one(".uk-product-card-horizontal")
-        if not product:
-            return Offer(
-                site=self.site,
-                search_url=search_url,
-                url="",
-                name="",
-                brand="",
-                product_category="",
-                part_number="",
-                ean=[],
-                price="",
-                status="Puudub",
-            )
+        price = listing_gross
 
-        title_el = product.select_one(".product__title")
-        price_el = product.select_one("p.uk-h4.uk-margin-remove")
+        if not price:
+            for _ in range(10):
+                price = normalize_price(
+                    safe_text(page.locator("div.value.price_gross_2.gross, div.price_gross_2.gross"))
+                )
+                if price:
+                    break
+                page.wait_for_timeout(250)
 
-        if not title_el or not price_el:
-            return Offer(
-                site=self.site,
-                search_url=search_url,
-                url="",
-                name="",
-                brand="",
-                product_category="",
-                part_number="",
-                ean=[],
-                price="",
-                status="Puudub",
-            )
+        if not price:
+            page_gross, _ = extract_prices_from_inline_json(page, art_value)
+            price = page_gross
 
-        title = title_el.get_text(strip=True)
-        price = self._clean_price(price_el.get_text())
-        link = title_el.get("href")
+        if not price:
+            price = extract_price_from_jsonld(page)
 
-        if not link:
-            return Offer(
-                site=self.site,
-                search_url=search_url,
-                url="",
-                name="",
-                brand="",
-                product_category="",
-                part_number="",
-                ean=[],
-                price="",
-                status="Puudub",
-            )
+        part_raw = safe_text(page.locator("span.indexValue"))
+        if part_raw:
+            cleaned = part_raw
+            if brand:
+                cleaned = re.sub(re.escape(brand), "", cleaned, flags=re.I)
+            part_number = cleaned.strip(" -:/")
+        else:
+            part_number = ""
 
-        if link.startswith("/"):
-            link = f"https://aeromotors.ee{link}"
-        elif not link.startswith("http"):
-            link = f"https://aeromotors.ee/{link.lstrip('/')}"
+        show_btn = page.locator("#show-attributes-button-, #show-attributes-button-Tecdoc")
+        if show_btn.count():
+            try:
+                show_btn.first.click()
+                page.wait_for_timeout(400)
+            except Exception:
+                pass
 
-        product_data = self._parse_product(page, link)
+        ean_list = extract_eans_from_product_page(page)
+
+        if not ean_list:
+            try:
+                card_text = card.text_content() or ""
+                ean_list = split_eans(card_text)
+            except Exception:
+                ean_list = []
+
+        status = parse_status(page)
+
+        wanted_ean = normalize_ean(ean)
+        normalized_page_eans = {normalize_ean(x) for x in ean_list if normalize_ean(x)}
+
+        if normalized_page_eans and wanted_ean and wanted_ean not in normalized_page_eans:
+            return self._make_not_found(search_url)
 
         return Offer(
             site=self.site,
             search_url=search_url,
-            url=link,
-            name=product_data["name"] or title,
-            brand=product_data["brand"] or "",
-            product_category=product_data["product_category"] or "",
-            part_number=product_data["part_number"] or "",
-            ean=product_data["ean"],
+            url=url,
+            name=name,
+            brand=brand,
+            product_category=product_category,
+            part_number=part_number,
+            ean=ean_list,
             price=price,
-            status="Saadaval",
+            status=status,
         )
