@@ -220,6 +220,41 @@ def find_best_card(page, ean: str):
 
     return cards.first
 
+def _handle_cloudflare_challenge(self, page):
+        cf_frame = None
+        for _ in range(30):
+            for frame in page.frames:
+                if frame.url.startswith('https://challenges.cloudflare.com'):
+                    cf_frame = frame
+                    break
+            if cf_frame:
+                break
+            page.wait_for_timeout(500)
+
+        if not cf_frame:
+            return
+
+        frame_element = cf_frame.frame_element()
+        if frame_element:
+            bbox = frame_element.bounding_box()
+            if bbox:
+                click_x = bbox['x'] + bbox['width'] / 9
+                click_y = bbox['y'] + bbox['height'] / 2
+                page.mouse.click(click_x, click_y)
+
+        for _ in range(60):
+            still_exists = any(
+                f.url.startswith('https://challenges.cloudflare.com')
+                for f in page.frames
+            )
+            if not still_exists:
+                break
+            page.wait_for_timeout(1000)
+
+        page.wait_for_timeout(3000)
+
+
+
 
 class Intercars24Plugin:
     site = "intercars24.ee"
@@ -228,9 +263,10 @@ class Intercars24Plugin:
         encoded = base64.b64encode(ean.encode()).decode()
         search_url = f"https://www.intercars24.ee/autoosad/search={encoded}&advancedOptionSearch=7"
 
-        page.goto(search_url, wait_until="domcontentloaded")
-        accept_osano(page)
-        page.wait_for_timeout(1200)
+        page.goto(search_url, wait_until="networkidle")
+        page.wait_for_timeout(2500)
+        
+        self._handle_cloudflare_challenge(page)
 
         screenshot_bytes = page.screenshot(full_page=True)
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
@@ -238,6 +274,9 @@ class Intercars24Plugin:
         print("=== SCREENSHOT BASE64 START ===")
         print(screenshot_b64)
         print("=== SCREENSHOT BASE64 END ===") 
+        
+        accept_osano(page)
+        page.wait_for_timeout(1200)
 
         card = find_best_card(page, ean)
         if not card:
