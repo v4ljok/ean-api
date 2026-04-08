@@ -97,6 +97,10 @@ class AeromotorsPlugin:
 
         page.goto(search_url, wait_until="networkidle")
         page.wait_for_timeout(2500)
+        print("title:", page.title())
+        print("cards:", page.locator(".uk-product-card-horizontal").count())
+        print("titles:", page.locator(".product__title").count())
+        print("prices:", page.locator("p.uk-h4.uk-margin-remove").count())
         soup = BeautifulSoup(page.content(), "html.parser")
 
         not_found_el = soup.select_one(".am-products-header span")
