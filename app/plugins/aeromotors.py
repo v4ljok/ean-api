@@ -93,22 +93,43 @@ class AeromotorsPlugin:
         }
     
     def _handle_cloudflare_challenge(self, page):
-        # Ожидаем появления Cloudflare-фрейма
-        page.wait_for_timeout(15000)  # 15 секунд
+        # Ждём появления Cloudflare-фрейма (максимум 15 секунд)
+        cf_frame = None
+        start = time.time()
+        while time.time() - start < 15:
+            for frame in page.frames:
+                if frame.url.startswith('https://challenges.cloudflare.com'):
+                    cf_frame = frame
+                    break
+            if cf_frame:
+                break
+            page.wait_for_timeout(500)
 
-        for frame in page.frames:
-            if frame.url.startswith('https://challenges.cloudflare.com'):
-                frame_element = frame.frame_element()
-                if frame_element:
-                    bbox = frame_element.bounding_box()
-                    if bbox:
-                        # Координаты чекбокса (как на картинке: width/9, height/2)
-                        click_x = bbox['x'] + bbox['width'] / 9
-                        click_y = bbox['y'] + bbox['height'] / 2
-                        page.mouse.click(click_x, click_y)
-                        # Небольшая пауза после клика
-                        page.wait_for_timeout(4000)
-                        break
+        if not cf_frame:
+            return  # Cloudflare не обнаружен, выходим
+
+        # Находим элемент фрейма и кликаем по чекбоксу
+        frame_element = cf_frame.frame_element()
+        if frame_element:
+            bbox = frame_element.bounding_box()
+            if bbox:
+                click_x = bbox['x'] + bbox['width'] / 9
+                click_y = bbox['y'] + bbox['height'] / 2
+                page.mouse.click(click_x, click_y)
+
+        # Ждём, пока фрейм не исчезнет (верификация завершена)
+        start = time.time()
+        while time.time() - start < 30:  # максимум 30 секунд на проверку
+            still_exists = any(
+                f.url.startswith('https://challenges.cloudflare.com')
+                for f in page.frames
+            )
+            if not still_exists:
+                break
+            page.wait_for_timeout(1000)
+
+        # Дополнительно ждём, пока страница перезагрузится/успокоится
+        page.wait_for_timeout(2000)
 
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
