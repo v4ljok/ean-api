@@ -94,10 +94,9 @@ class AeromotorsPlugin:
         }
     
     def _handle_cloudflare_challenge(self, page):
-        # Ждём появления Cloudflare-фрейма (максимум 15 секунд)
+        # 1. Ждём появления Cloudflare-фрейма (максимум 15 секунд)
         cf_frame = None
-        start = time.time()
-        while time.time() - start < 15:
+        for _ in range(30):  # 30 * 0.5 = 15 сек
             for frame in page.frames:
                 if frame.url.startswith('https://challenges.cloudflare.com'):
                     cf_frame = frame
@@ -107,9 +106,9 @@ class AeromotorsPlugin:
             page.wait_for_timeout(500)
 
         if not cf_frame:
-            return  # Cloudflare не обнаружен, выходим
+            return  # Нет капчи – выходим
 
-        # Находим элемент фрейма и кликаем по чекбоксу
+        # 2. Кликаем по чекбоксу внутри фрейма
         frame_element = cf_frame.frame_element()
         if frame_element:
             bbox = frame_element.bounding_box()
@@ -118,9 +117,8 @@ class AeromotorsPlugin:
                 click_y = bbox['y'] + bbox['height'] / 2
                 page.mouse.click(click_x, click_y)
 
-        # Ждём, пока фрейм не исчезнет (верификация завершена)
-        start = time.time()
-        while time.time() - start < 30:  # максимум 30 секунд на проверку
+        # 3. Ждём, пока фрейм исчезнет (верификация завершена)
+        for _ in range(60):  # до 60 секунд, но обычно 2-5 сек
             still_exists = any(
                 f.url.startswith('https://challenges.cloudflare.com')
                 for f in page.frames
@@ -129,8 +127,8 @@ class AeromotorsPlugin:
                 break
             page.wait_for_timeout(1000)
 
-        # Дополнительно ждём, пока страница перезагрузится/успокоится
-        page.wait_for_timeout(2000)
+        # 4. Дополнительно ждём, пока страница перезагрузится и станет стабильной
+        page.wait_for_timeout(3000)
 
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
