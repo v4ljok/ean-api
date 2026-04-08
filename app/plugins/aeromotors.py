@@ -24,7 +24,6 @@ class AeromotorsPlugin:
     def _parse_product(self, page, url: str) -> dict:
         page.goto(url, wait_until="domcontentloaded")
         page.wait_for_timeout(1200)
-
         soup = BeautifulSoup(page.content(), "html.parser")
 
         name_el = soup.select_one("h1")
@@ -46,19 +45,11 @@ class AeromotorsPlugin:
 
             if key == "Kaubamärk":
                 strong = value_cell.select_one("strong")
-                brand = (
-                    strong.get_text(strip=True)
-                    if strong
-                    else value_cell.get_text(" ", strip=True)
-                )
+                brand = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
 
             elif key == "Tootegrupp":
                 strong = value_cell.select_one("strong")
-                product_category = (
-                    strong.get_text(strip=True)
-                    if strong
-                    else value_cell.get_text(" ", strip=True)
-                )
+                product_category = strong.get_text(strip=True) if strong else value_cell.get_text(" ", strip=True)
 
             elif key == "EAN":
                 eans = self._extract_eans(value_cell)
@@ -87,7 +78,7 @@ class AeromotorsPlugin:
                     if not eans:
                         gtin13 = item.get("gtin13")
                         if gtin13:
-                            eans = [str(gtin13).strip()]
+                            eans = [gtin13]
                     break
 
             if part_number:
@@ -106,7 +97,6 @@ class AeromotorsPlugin:
 
         page.goto(search_url, wait_until="domcontentloaded")
         page.wait_for_timeout(1500)
-
         soup = BeautifulSoup(page.content(), "html.parser")
 
         not_found_el = soup.select_one(".am-products-header span")
@@ -173,11 +163,6 @@ class AeromotorsPlugin:
                 price="",
                 status="Puudub",
             )
-
-        if link.startswith("/"):
-            link = f"https://aeromotors.ee{link}"
-        elif not link.startswith("http"):
-            link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
         product_data = self._parse_product(page, link)
 
