@@ -147,7 +147,7 @@ class AeromotorsPlugin:
 
         # Небольшая задержка для стабильности (опционально)
         page.wait_for_timeout(1000)
-        
+
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
 
@@ -171,7 +171,7 @@ class AeromotorsPlugin:
         print("prices:", page.locator("p.uk-h4.uk-margin-remove").count())
         print("all links:", page.locator("a").count())
         print("all h1:", page.locator("h1").count())
-        print("body text:", page.locator("body").inner_text()[:2000])
+        print("body text:", page.locator("body").first.inner_text()[:2000])
         print("html:", page.content()[:3000])
 
         print("=== SCREENSHOT BASE64 START ===")
