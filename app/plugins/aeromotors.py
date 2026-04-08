@@ -93,60 +93,97 @@ class AeromotorsPlugin:
         }
     
     def _handle_cloudflare_challenge(self, page, timeout=30000):
-        """
-        Обнаруживает и решает Cloudflare challenge (чекбокс).
-        После клика дожидается завершения верификации (исчезновения iframe).
-        """
-        # Ищем фрейм с челленджем
-        challenge_frame = None
-        for frame in page.frames:
-            if frame.url.startswith('https://challenges.cloudflare.com'):
-                challenge_frame = frame
-                break
-
-        if not challenge_frame:
-            # Челленджа нет — выходим
-            return
-
-        # Получаем элемент фрейма и его координаты
-        frame_element = challenge_frame.frame_element()
-        bounding_box = frame_element.bounding_box()
-        if not bounding_box:
-            return
-
-        coord_x = bounding_box['x']
-        coord_y = bounding_box['y']
-        width = bounding_box['width']
-        height = bounding_box['height']
-
-        # Координаты чекбокса (как в исходном примере)
-        checkbox_x = coord_x + width / 9
-        checkbox_y = coord_y + height / 2
-
-        # Кликаем
-        page.mouse.click(x=checkbox_x, y=checkbox_y)
-
-        # Теперь ждём, пока фрейм челленджа не исчезнет (т.е. страница не завершит верификацию)
+        print("=== Cloudflare Debug: начали обработку ===")
         try:
-            page.wait_for_function(
-                """frames => !frames.some(f => f.url.startsWith('https://challenges.cloudflare.com'))""",
-                arg=page.frames,
-                timeout=timeout
+            # Ждём появления iframe с челленджем
+            challenge_iframe = page.wait_for_selector(
+                'iframe[src*="challenges.cloudflare.com"]',
+                timeout=5000
             )
-        except Exception:
-            # Если не дождались — возможно, фрейм ещё есть, но продолжим
-            pass
+            print(f"Cloudflare Debug: iframe найден: {challenge_iframe}")
+        except Exception as e:
+            print(f"Cloudflare Debug: iframe не найден за 5с, выходим. Ошибка: {e}")
+            return
 
-        # Дополнительно ждём появления основного контента страницы,
-        # чтобы быть уверенными, что всё загрузилось.
+        # Получаем фрейм
+        print("Cloudflare Debug: список всех фреймов:")
+        for idx, f in enumerate(page.frames):
+            print(f"  фрейм {idx}: {f.url}")
+        
+        frame = page.frames[0]  # часто iframe первым не бывает, ищем по url
+        for f in page.frames:
+            if 'challenges.cloudflare.com' in f.url:
+                frame = f
+                print(f"Cloudflare Debug: найден фрейм по url: {f.url}")
+                break
+        else:
+            # Не нашли фрейм, но iframe есть? Попробуем content_frame
+            print("Cloudflare Debug: фрейм по url не найден, пробуем content_frame()")
+            frame = challenge_iframe.content_frame()
+            if not frame:
+                print("Cloudflare Debug: content_frame() вернул None, выходим")
+                return
+            print(f"Cloudflare Debug: content_frame() дал фрейм: {frame.url}")
+
+        # Пытаемся кликнуть внутри фрейма
         try:
-            page.wait_for_selector(".uk-product-card-horizontal", timeout=10000)
-        except Exception:
-            # Если контента нет — не страшно, дальше код сам разберётся
-            pass
+            # Способ 1: найти сам чекбокс/кнопку по селектору
+            print("Cloudflare Debug: ищем input[type='checkbox']")
+            checkbox = frame.locator('input[type="checkbox"]').first
+            checkbox_count = checkbox.count()
+            print(f"Cloudflare Debug: найдено чекбоксов: {checkbox_count}")
+            if checkbox_count > 0:
+                print("Cloudflare Debug: кликаем по чекбоксу")
+                checkbox.click()
+                print("Cloudflare Debug: клик по чекбоксу выполнен")
+            else:
+                # Способ 2: кнопка "Verify" или подобная
+                print("Cloudflare Debug: ищем button[type='button']")
+                verify_btn = frame.locator('button[type="button"]').first
+                btn_count = verify_btn.count()
+                print(f"Cloudflare Debug: найдено кнопок: {btn_count}")
+                if btn_count > 0:
+                    print("Cloudflare Debug: кликаем по кнопке")
+                    verify_btn.click()
+                    print("Cloudflare Debug: клик по кнопке выполнен")
+                else:
+                    # Способ 3: клик по координатам (старый метод)
+                    print("Cloudflare Debug: чекбоксов и кнопок нет, пробуем клик по координатам")
+                    box = challenge_iframe.bounding_box()
+                    if box:
+                        click_x = box['x'] + box['width'] / 2
+                        click_y = box['y'] + box['height'] / 2
+                        print(f"Cloudflare Debug: координаты iframe: x={box['x']}, y={box['y']}, w={box['width']}, h={box['height']}")
+                        print(f"Cloudflare Debug: клик по центру: x={click_x}, y={click_y}")
+                        page.mouse.click(click_x, click_y)
+                        print("Cloudflare Debug: клик по координатам выполнен")
+                    else:
+                        print("Cloudflare Debug: не удалось получить bounding_box iframe")
+        except Exception as e:
+            print(f"Cloudflare Debug: Ошибка при клике: {e}")
+            return
 
-        # Небольшая задержка для стабильности (опционально)
+        # Ждём исчезновения всех фреймов Cloudflare (верификация завершена)
+        print("Cloudflare Debug: ожидаем исчезновения фреймов Cloudflare...")
+        start = page.evaluate('Date.now()')
+        while page.evaluate('Date.now()') - start < timeout:
+            still_exists = any('challenges.cloudflare.com' in f.url for f in page.frames)
+            if not still_exists:
+                print("Cloudflare Debug: все фреймы Cloudflare исчезли")
+                break
+            page.wait_for_timeout(500)
+        else:
+            print("Cloudflare Debug: Таймаут: Cloudflare challenge не исчез")
+
+        # Дополнительно ждём появления основного контента
+        try:
+            print("Cloudflare Debug: ожидаем появления .uk-product-card-horizontal")
+            page.wait_for_selector('.uk-product-card-horizontal', timeout=10000)
+            print("Cloudflare Debug: контент появился")
+        except Exception as e:
+            print(f"Cloudflare Debug: контент не появился: {e}")
         page.wait_for_timeout(1000)
+        print("=== Cloudflare Debug: обработка завершена ===")
 
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
