@@ -92,24 +92,62 @@ class AeromotorsPlugin:
             "ean": eans,
         }
     
-    def _handle_cloudflare_challenge(self, page):
-        #Обнаруживает и решает Cloudflare challenge (чекбокс) на странице.
+    def _handle_cloudflare_challenge(self, page, timeout=30000):
+        """
+        Обнаруживает и решает Cloudflare challenge (чекбокс).
+        После клика дожидается завершения верификации (исчезновения iframe).
+        """
+        # Ищем фрейм с челленджем
+        challenge_frame = None
         for frame in page.frames:
             if frame.url.startswith('https://challenges.cloudflare.com'):
-                frame_element = frame.frame_element()
-                bounding_box = frame_element.bounding_box()
-                if bounding_box:
-                    coord_x = bounding_box['x']
-                    coord_y = bounding_box['y']
-                    width = bounding_box['width']
-                    height = bounding_box['height']
-                    checkbox_x = coord_x + width / 9
-                    checkbox_y = coord_y + height / 2
-                    page.mouse.click(x=checkbox_x, y=checkbox_y)
-                    # Даём время на обработку капчи и перезагрузку страницы
-                    page.wait_for_timeout(3000)
-                    break  # challenge найден и обработан, дальше не ищем
+                challenge_frame = frame
+                break
 
+        if not challenge_frame:
+            # Челленджа нет — выходим
+            return
+
+        # Получаем элемент фрейма и его координаты
+        frame_element = challenge_frame.frame_element()
+        bounding_box = frame_element.bounding_box()
+        if not bounding_box:
+            return
+
+        coord_x = bounding_box['x']
+        coord_y = bounding_box['y']
+        width = bounding_box['width']
+        height = bounding_box['height']
+
+        # Координаты чекбокса (как в исходном примере)
+        checkbox_x = coord_x + width / 9
+        checkbox_y = coord_y + height / 2
+
+        # Кликаем
+        page.mouse.click(x=checkbox_x, y=checkbox_y)
+
+        # Теперь ждём, пока фрейм челленджа не исчезнет (т.е. страница не завершит верификацию)
+        try:
+            page.wait_for_function(
+                """frames => !frames.some(f => f.url.startsWith('https://challenges.cloudflare.com'))""",
+                arg=page.frames,
+                timeout=timeout
+            )
+        except Exception:
+            # Если не дождались — возможно, фрейм ещё есть, но продолжим
+            pass
+
+        # Дополнительно ждём появления основного контента страницы,
+        # чтобы быть уверенными, что всё загрузилось.
+        try:
+            page.wait_for_selector(".uk-product-card-horizontal", timeout=10000)
+        except Exception:
+            # Если контента нет — не страшно, дальше код сам разберётся
+            pass
+
+        # Небольшая задержка для стабильности (опционально)
+        page.wait_for_timeout(1000)
+        
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
 
