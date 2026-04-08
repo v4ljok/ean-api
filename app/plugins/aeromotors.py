@@ -91,6 +91,24 @@ class AeromotorsPlugin:
             "part_number": part_number,
             "ean": eans,
         }
+    
+    def _handle_cloudflare_challenge(self, page):
+        #Обнаруживает и решает Cloudflare challenge (чекбокс) на странице.
+        for frame in page.frames:
+            if frame.url.startswith('https://challenges.cloudflare.com'):
+                frame_element = frame.frame_element()
+                bounding_box = frame_element.bounding_box()
+                if bounding_box:
+                    coord_x = bounding_box['x']
+                    coord_y = bounding_box['y']
+                    width = bounding_box['width']
+                    height = bounding_box['height']
+                    checkbox_x = coord_x + width / 9
+                    checkbox_y = coord_y + height / 2
+                    page.mouse.click(x=checkbox_x, y=checkbox_y)
+                    # Даём время на обработку капчи и перезагрузку страницы
+                    page.wait_for_timeout(3000)
+                    break  # challenge найден и обработан, дальше не ищем
 
     def search(self, page, ean: str) -> Optional[Offer]:
         import base64
@@ -99,6 +117,9 @@ class AeromotorsPlugin:
 
         page.goto(search_url, wait_until="networkidle")
         page.wait_for_timeout(2500)
+
+        self._handle_cloudflare_challenge(page)
+
 
         # 📸 СКРИН
         screenshot_bytes = page.screenshot(full_page=True)
@@ -117,7 +138,7 @@ class AeromotorsPlugin:
 
         print("=== SCREENSHOT BASE64 START ===")
         print(screenshot_b64)
-        print("=== SCREENSHOT BASE64 END ===")
+        print("=== SCREENSHOT BASE64 END ===") 
 
         soup = BeautifulSoup(page.content(), "html.parser")
         
