@@ -86,9 +86,9 @@ class AeromotorsPlugin:
         try:
             text = (page.text_content("body", timeout=1000) or "").lower()
             return (
-                "performing security verification" in text
-                or "verify you are not a bot" in text
-                or "cloudflare" in text and "checking your browser" in text
+                "Verifying" in text
+                or "bot" in text
+                or "bots" in text and "checking" in text
             )
         except:
             return False
