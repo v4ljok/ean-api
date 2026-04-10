@@ -178,6 +178,9 @@ class AeromotorsPlugin:
 
         self._handle_cloudflare_challenge(page)
 
+        if self._is_cloudflare_page(page):
+            return None
+
         make_screenshot_base64(page, quality=5)
 
         soup = BeautifulSoup(page.content(), "html.parser")
