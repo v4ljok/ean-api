@@ -61,7 +61,6 @@ class AeromotorsPlugin:
             page.wait_for_timeout(500)
 
         if not cf_frame:
-            make_screenshot_base64(page, quality=5)
             return
         
         frame_element = cf_frame.frame_element()
@@ -164,6 +163,8 @@ class AeromotorsPlugin:
         page.wait_for_timeout(2500)
 
         self._handle_cloudflare_challenge(page)
+
+        make_screenshot_base64(page, quality=5)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
