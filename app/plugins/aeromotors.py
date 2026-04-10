@@ -48,58 +48,68 @@ class AeromotorsPlugin:
 
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
+    
+    def _is_cloudflare_verifying(self, page) -> bool:
+        try:
+            text = (page.text_content("body", timeout=1000) or "").lower()
+            return (
+                ("performing security verification" in text)
+                or ("verifying" in text)
+                or ("verify you are not a bot" in text)
+                or (("cloudflare" in text) and ("checking" in text))
+            )
+        except Exception:
+            return False
 
-    def _handle_cloudflare_challenge(self, page):
+    def _handle_cloudflare_challenge(self, page) -> bool:
         cf_frame = None
-        for _ in range(30):
+
+        for _ in range(20):
             for frame in page.frames:
-                if frame.url.startswith('https://challenges.cloudflare.com'):
+                if frame.url.startswith("https://challenges.cloudflare.com"):
                     cf_frame = frame
                     break
             if cf_frame:
                 break
+
+            if not self._is_cloudflare_verifying(page):
+                return True
+
             page.wait_for_timeout(500)
 
-        if not cf_frame:
-            return
-        
-        frame_element = cf_frame.frame_element()
-        if frame_element:
-            bbox = frame_element.bounding_box()
-            if bbox:
-                click_x = bbox['x'] + bbox['width'] / 9
-                click_y = bbox['y'] + bbox['height'] / 2
-                page.mouse.click(click_x, click_y)
+        if cf_frame:
+            try:
+                frame_element = cf_frame.frame_element()
+                if frame_element:
+                    bbox = frame_element.bounding_box()
+                    if bbox:
+                        click_x = bbox["x"] + bbox["width"] / 9
+                        click_y = bbox["y"] + bbox["height"] / 2
+                        page.mouse.click(click_x, click_y)
+            except Exception:
+                pass
 
         for _ in range(120):
-            still_exists = any(
-                f.url.startswith('https://challenges.cloudflare.com')
+            iframe_exists = any(
+                f.url.startswith("https://challenges.cloudflare.com")
                 for f in page.frames
             )
-            if not still_exists:
-                break
+            verifying = self._is_cloudflare_verifying(page)
+
+            if not iframe_exists and not verifying:
+                return True
+
             page.wait_for_timeout(500)
 
-        page.wait_for_timeout(3000)
-
-    def _is_cloudflare_page(self, page) -> bool:
-        try:
-            text = (page.text_content("body", timeout=1000) or "").lower()
-            return (
-                "Verifying" in text
-                or "bot" in text
-                or "bots" in text and "checking" in text
-            )
-        except:
-            return False
+        return False
 
     def _parse_product(self, page, url: str) -> Optional[dict]:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2000)
-        self._handle_cloudflare_challenge(page)
 
-        if self._is_cloudflare_page(page):
+        ok = self._handle_cloudflare_challenge(page)
+        if not ok:
             return None
 
         soup = BeautifulSoup(page.content(), "html.parser")
@@ -176,9 +186,8 @@ class AeromotorsPlugin:
         page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2500)
 
-        self._handle_cloudflare_challenge(page)
-
-        if self._is_cloudflare_page(page):
+        ok = self._handle_cloudflare_challenge(page)
+        if not ok:
             return None
 
         make_screenshot_base64(page, quality=5)
