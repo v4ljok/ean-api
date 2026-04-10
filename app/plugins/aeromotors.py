@@ -93,7 +93,7 @@ class AeromotorsPlugin:
         except:
             return False
 
-    def _parse_product(self, page, url: str) -> dict:
+    def _parse_product(self, page, url: str) -> Optional[dict]:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2000)
@@ -256,6 +256,8 @@ class AeromotorsPlugin:
             link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
         product_data = self._parse_product(page, link)
+        if not product_data:
+            return None
         
         return Offer(
             site=self.site,
