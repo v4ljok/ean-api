@@ -224,20 +224,49 @@ def find_best_card(page, ean: str):
 class Intercars24Plugin:
     site = "intercars24.ee"
 
+    def _is_intercars_ready(self, page) -> bool:
+        try:
+            text = (page.text_content("body", timeout=1000) or "").lower()
+            return (
+                ("intercars24" in text)
+                or ("otsing" in text)
+                or ("search" in text)
+            )
+        except Exception:
+            return False
+
+    def _wait_intercars_ready(self, page, timeout_ms: int = 5000) -> bool:
+        steps = max(1, timeout_ms // 250)
+
+        for _ in range(steps):
+            if self._is_intercars_ready(page):
+                return True
+            page.wait_for_timeout(250)
+
+        return False
+
     def search(self, page, ean: str) -> Optional[Offer]:
         encoded = base64.b64encode(ean.encode()).decode()
         search_url = f"https://www.intercars24.ee/autoosad/search={encoded}&advancedOptionSearch=7"
 
         page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
 
-        # screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        # screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        # print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        # print(f"{screenshot_b64}")
-        # print("=== SCREENSHOT BASE64 PREVIEW END ===")
+        ok = self._wait_intercars_ready(page, timeout_ms=5000)
+        if not ok:
+            return Offer(
+                site=self.site,
+                search_url=search_url,
+                url="",
+                name="",
+                brand="",
+                product_category="",
+                part_number="",
+                ean=[],
+                price="",
+                status="Puudub",
+            )
 
         accept_osano(page)
-        # page.wait_for_timeout(1200)
 
         card = find_best_card(page, ean)
         if not card:
@@ -292,8 +321,7 @@ class Intercars24Plugin:
             if not listing_net:
                 listing_net = listing_net_from_json
 
-        page.goto(url, wait_until="domcontentloaded")
-        # page.wait_for_timeout(1200)
+        page.goto(url, wait_until="domcontentloaded", timeout=30_000)
 
         name = safe_text(page.locator("h1"))
         brand = safe_text(page.locator("span.manufacture"))
