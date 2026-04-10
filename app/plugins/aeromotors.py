@@ -110,7 +110,7 @@ class AeromotorsPlugin:
 
         ok = self._handle_cloudflare_challenge(page)
         if not ok:
-            make_screenshot_base64(page, quality=5)
+            # make_screenshot_base64(page, quality=5)
             return None
 
         soup = BeautifulSoup(page.content(), "html.parser")
@@ -189,10 +189,10 @@ class AeromotorsPlugin:
 
         ok = self._handle_cloudflare_challenge(page)
         if not ok:
-            make_screenshot_base64(page, quality=5)
+            # make_screenshot_base64(page, quality=5)
             return None
 
-        make_screenshot_base64(page, quality=5)
+        # make_screenshot_base64(page, quality=5)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
