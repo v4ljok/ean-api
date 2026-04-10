@@ -21,48 +21,44 @@ class AeromotorsPlugin:
     def _extract_eans(self, value_cell) -> list[str]:
         return [x.strip() for x in value_cell.stripped_strings if x.strip()]
 
-    def _wait_for_page_ready(self, page):
-        """
-        Ждём либо прохождения CF, либо появления контента.
-        Вызывать сразу после goto — без любых других пауз.
-        """
-        for _ in range(60):  # max 30s
-            frames = page.frames
-            has_cf = any(f.url.startswith('https://challenges.cloudflare.com') for f in frames)
-            
-            if has_cf:
-                # Пробуем кликнуть по чекбоксу CF
-                for frame in frames:
-                    if frame.url.startswith('https://challenges.cloudflare.com'):
-                        try:
-                            fe = frame.frame_element()
-                            bbox = fe.bounding_box() if fe else None
-                            if bbox:
-                                page.mouse.click(
-                                    bbox['x'] + bbox['width'] / 9,
-                                    bbox['y'] + bbox['height'] / 2
-                                )
-                        except Exception:
-                            pass
-                        break
-                page.wait_for_timeout(500)
-                continue
+    def _handle_cloudflare_challenge(self, page):
+        cf_frame = None
+        for _ in range(30):
+            for frame in page.frames:
+                if frame.url.startswith('https://challenges.cloudflare.com'):
+                    cf_frame = frame
+                    break
+            if cf_frame:
+                break
+            page.wait_for_timeout(500)
 
-            # CF нет — проверяем что контент уже есть
-            try:
-                html_len = len(page.content())
-                if html_len > 1500:
-                    return  # готово
-            except Exception:
-                pass
+        if not cf_frame:
+            return
 
-            page.wait_for_timeout(300)
+        frame_element = cf_frame.frame_element()
+        if frame_element:
+            bbox = frame_element.bounding_box()
+            if bbox:
+                click_x = bbox['x'] + bbox['width'] / 9
+                click_y = bbox['y'] + bbox['height'] / 2
+                page.mouse.click(click_x, click_y)
+
+        for _ in range(60):
+            still_exists = any(
+                f.url.startswith('https://challenges.cloudflare.com')
+                for f in page.frames
+            )
+            if not still_exists:
+                break
+            page.wait_for_timeout(1000)
+
+        page.wait_for_timeout(3000)
 
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        # page.wait_for_timeout(2000)
-        self._wait_for_page_ready(page)
+        page.wait_for_timeout(2000)
+        self._handle_cloudflare_challenge(page)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
@@ -136,9 +132,9 @@ class AeromotorsPlugin:
         search_url = f"https://aeromotors.ee/otsi?s={ean}"
 
         page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
-        # page.wait_for_timeout(2500)
+        page.wait_for_timeout(2500)
 
-        self._wait_for_page_ready(page)
+        self._handle_cloudflare_challenge(page)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
