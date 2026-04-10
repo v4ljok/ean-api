@@ -230,14 +230,14 @@ class Intercars24Plugin:
 
         page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
 
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64}")
-        print("=== SCREENSHOT BASE64 PREVIEW END ===")
+        # screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
+        # screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+        # print("=== SCREENSHOT BASE64 PREVIEW START ===")
+        # print(f"{screenshot_b64}")
+        # print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
         accept_osano(page)
-        page.wait_for_timeout(1200)
+        # page.wait_for_timeout(1200)
 
         card = find_best_card(page, ean)
         if not card:
@@ -293,7 +293,7 @@ class Intercars24Plugin:
                 listing_net = listing_net_from_json
 
         page.goto(url, wait_until="domcontentloaded")
-        page.wait_for_timeout(1200)
+        # page.wait_for_timeout(1200)
 
         name = safe_text(page.locator("h1"))
         brand = safe_text(page.locator("span.manufacture"))
