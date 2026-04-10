@@ -34,13 +34,7 @@ class AeromotorsPlugin:
 
         if not cf_frame:
             return
-
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64}")
-        print("=== SCREENSHOT BASE64 PREVIEW END ===")
-
+        
         frame_element = cf_frame.frame_element()
         if frame_element:
             bbox = frame_element.bounding_box()
@@ -58,25 +52,13 @@ class AeromotorsPlugin:
                 break
             page.wait_for_timeout(500)
 
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64}")
-        print("=== SCREENSHOT BASE64 PREVIEW END ===")
-
-        page.wait_for_selector("main", timeout=15000)
+        page.wait_for_timeout(3000)
 
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2000)
         self._handle_cloudflare_challenge(page)
-
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64}")
-        print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
