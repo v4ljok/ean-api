@@ -1,5 +1,5 @@
 import io
-from tkinter import Image
+from PIL import Image
 from typing import Optional
 import json
 import re
