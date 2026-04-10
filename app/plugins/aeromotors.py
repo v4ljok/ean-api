@@ -23,14 +23,14 @@ class AeromotorsPlugin:
 
     def _handle_cloudflare_challenge(self, page):
         cf_frame = None
-        for _ in range(2):
+        for _ in range(1):
             for frame in page.frames:
                 if frame.url.startswith('https://challenges.cloudflare.com'):
                     cf_frame = frame
                     break
             if cf_frame:
                 break
-            page.wait_for_timeout(500)
+            # page.wait_for_timeout(500)
 
         if not cf_frame:
             return
@@ -50,9 +50,9 @@ class AeromotorsPlugin:
             )
             if not still_exists:
                 break
-            page.wait_for_timeout(1000)
+            # page.wait_for_timeout(1000)
 
-        page.wait_for_timeout(3000)
+        # page.wait_for_timeout(3000)
 
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
