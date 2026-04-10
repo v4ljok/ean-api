@@ -230,12 +230,11 @@ class Intercars24Plugin:
 
         page.goto(search_url, wait_until="domcontentloaded")
 
-        # screenshot_bytes = page.screenshot(full_page=True)
-        # screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-
-        # print("=== SCREENSHOT BASE64 START ===")
-        # print(screenshot_b64)
-        # print("=== SCREENSHOT BASE64 END ===") 
+        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=40)
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+        print("=== SCREENSHOT BASE64 PREVIEW START ===")
+        print(f"{screenshot_b64[:200]}... [len={len(screenshot_b64)}]")
+        print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
         accept_osano(page)
         page.wait_for_timeout(1200)
