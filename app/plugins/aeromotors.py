@@ -43,14 +43,14 @@ class AeromotorsPlugin:
                 click_y = bbox['y'] + bbox['height'] / 2
                 page.mouse.click(click_x, click_y)
 
-        for _ in range(60):
+        for _ in range(120):
             still_exists = any(
                 f.url.startswith('https://challenges.cloudflare.com')
                 for f in page.frames
             )
             if not still_exists:
                 break
-            # page.wait_for_timeout(1000)
+            page.wait_for_timeout(500)
 
         # page.wait_for_timeout(3000)
 
