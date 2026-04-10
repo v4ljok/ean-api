@@ -82,11 +82,25 @@ class AeromotorsPlugin:
 
         page.wait_for_timeout(3000)
 
+    def _is_cloudflare_page(self, page) -> bool:
+        try:
+            text = (page.text_content("body", timeout=1000) or "").lower()
+            return (
+                "performing security verification" in text
+                or "verify you are not a bot" in text
+                or "cloudflare" in text and "checking your browser" in text
+            )
+        except:
+            return False
+
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
         page.wait_for_timeout(2000)
         self._handle_cloudflare_challenge(page)
+
+        if self._is_cloudflare_page(page):
+            return None
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
