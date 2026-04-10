@@ -69,7 +69,6 @@ class AeromotorsPlugin:
                 if frame.url.startswith("https://challenges.cloudflare.com"):
                     cf_frame = frame
                     break
-
             if cf_frame:
                 break
 
@@ -82,26 +81,13 @@ class AeromotorsPlugin:
             try:
                 frame_element = cf_frame.frame_element()
                 if frame_element:
-                    bounding_box = frame_element.bounding_box()
-
-                    if bounding_box:
-                        coord_x = bounding_box["x"]
-                        coord_y = bounding_box["y"]
-
-                        width = bounding_box["width"]
-                        height = bounding_box["height"]
-
-                        checkbox_x = coord_x + width / 9
-                        checkbox_y = coord_y + height / 2
-
-                        page.wait_for_timeout(1000)
-                        page.mouse.click(x=checkbox_x, y=checkbox_y)
-
-                        print("CF bbox:", bounding_box)
-                        print("Click:", checkbox_x, checkbox_y)
-
-            except Exception as e:
-                print("CF click error:", e)
+                    bbox = frame_element.bounding_box()
+                    if bbox:
+                        click_x = bbox["x"] + bbox["width"] / 9
+                        click_y = bbox["y"] + bbox["height"] / 2
+                        page.mouse.click(click_x, click_y)
+            except Exception:
+                pass
 
         for _ in range(120):
             iframe_exists = any(
