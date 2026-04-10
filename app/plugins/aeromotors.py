@@ -57,8 +57,8 @@ class AeromotorsPlugin:
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
         page.goto(url, wait_until="domcontentloaded", timeout=30_000)
-        page.wait_for_timeout(2000)
-        self._handle_cloudflare_challenge(page)
+        # page.wait_for_timeout(2000)
+        # self._handle_cloudflare_challenge(page)
 
         soup = BeautifulSoup(page.content(), "html.parser")
 
