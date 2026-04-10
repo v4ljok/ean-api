@@ -1,3 +1,5 @@
+import io
+from tkinter import Image
 from typing import Optional
 import json
 import re
@@ -210,12 +212,25 @@ class AeromotorsPlugin:
 
         product_data = self._parse_product(page, link)
 
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
-        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
-        print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64}")
-        print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
+        raw_bytes = page.screenshot(
+            full_page=False,
+            type="jpeg",
+            quality=1
+        )
+
+        img = Image.open(io.BytesIO(raw_bytes)).convert("L")
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=5, optimize=True)
+        screenshot_bytes = buf.getvalue()
+
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode("utf-8")
+
+        print("=== SCREENSHOT BASE64 PREVIEW START ===")
+        print(screenshot_b64)
+        print("=== SCREENSHOT BASE64 PREVIEW END ===")
+        
         return Offer(
             site=self.site,
             search_url=search_url,
