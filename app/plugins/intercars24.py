@@ -228,12 +228,12 @@ class Intercars24Plugin:
         encoded = base64.b64encode(ean.encode()).decode()
         search_url = f"https://www.intercars24.ee/autoosad/search={encoded}&advancedOptionSearch=7"
 
-        page.goto(search_url, wait_until="domcontentloaded")
+        page.goto(search_url, wait_until="domcontentloaded", timeout=30_000)
 
-        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=40)
+        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
         screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
         print("=== SCREENSHOT BASE64 PREVIEW START ===")
-        print(f"{screenshot_b64[:200]}... [len={len(screenshot_b64)}]")
+        print(f"{screenshot_b64}")
         print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
         accept_osano(page)
