@@ -52,7 +52,7 @@ class AeromotorsPlugin:
                 break
             page.wait_for_timeout(500)
 
-        page.wait_for_selector("main", timeout=3000)
+        page.wait_for_timeout(3000)
 
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
