@@ -64,7 +64,7 @@ class AeromotorsPlugin:
         print(f"{screenshot_b64}")
         print("=== SCREENSHOT BASE64 PREVIEW END ===")
 
-        page.wait_for_timeout(3000)
+        page.wait_for_selector("main", timeout=15000)
 
     def _parse_product(self, page, url: str) -> dict:
         # domcontentloaded — не зависает на CF "Verifying..." в отличие от networkidle
