@@ -51,7 +51,7 @@ class AeromotorsPlugin:
 
     def _handle_cloudflare_challenge(self, page):
         cf_frame = None
-        for _ in range(2):
+        for _ in range(30):
             for frame in page.frames:
                 if frame.url.startswith('https://challenges.cloudflare.com'):
                     cf_frame = frame
@@ -239,8 +239,6 @@ class AeromotorsPlugin:
             link = f"https://aeromotors.ee/{link.lstrip('/')}"
 
         product_data = self._parse_product(page, link)
-
-        make_screenshot_base64(page, quality=5)
         
         return Offer(
             site=self.site,
