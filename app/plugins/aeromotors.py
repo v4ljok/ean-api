@@ -210,6 +210,12 @@ class AeromotorsPlugin:
 
         product_data = self._parse_product(page, link)
 
+        screenshot_bytes = page.screenshot(full_page=False, type="jpeg", quality=5)
+        screenshot_b64 = base64.b64encode(screenshot_bytes).decode()
+        print("=== SCREENSHOT BASE64 PREVIEW START ===")
+        print(f"{screenshot_b64}")
+        print("=== SCREENSHOT BASE64 PREVIEW END ===")
+
         return Offer(
             site=self.site,
             search_url=search_url,
