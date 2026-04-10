@@ -85,6 +85,7 @@ class AeromotorsPlugin:
                     if bbox:
                         click_x = bbox["x"] + bbox["width"] / 9
                         click_y = bbox["y"] + bbox["height"] / 2
+                        page.wait_for_timeout(1000)
                         page.mouse.click(click_x, click_y)
             except Exception:
                 pass
